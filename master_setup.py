@@ -9,10 +9,10 @@ from pylib import *
 close("all")
 
 p=zdata(); p.flag={}  #parameters
-p.base_run   = 'run16a'                           #for file with flag==2, a symbolic link will be generated
-p.begin_time =  datenum(2018,1,1)
-p.end_time   =  datenum(2020,1,1)                 
-p.grid_dir   = '../../Grids/V2c'                  #grid, including hgrid.ll, hgrid.gr3,grid.npz,vgrid.in, rivers.bp
+p.base   = 'run16a'   #for file with flag==2, a symbolic link will be generated
+p.StartT =  datenum(2018,1,1)
+p.EndT   =  datenum(2020,1,1)                 
+p.grid_dir   = '../../Grids/V2d' #grid, including hgrid.ll, hgrid.gr3,grid.npz,vgrid.in, rivers.bp
 p.hot_base   = '../setup_files/2018_sz_40layer.npz' #from previous run, only for grids with depth less than hot_base_h
 p.hot_base_h = 20                                 #depth for which the hot_base will be used. deeper water will still base on hycom
 p.tide_dir   = r'/scratch/user/jdu/FES2014'       #FES tide and script to ajust nodal
@@ -20,24 +20,30 @@ p.hycom_dir  = '../../Observations/hycom/Data/'   #hycom data
 p.flow_dir   = '../../Observations/usgs_flow/npz/'#flow data, used in vsource.th
 p.temp_dir   = '../../Observations/usgs_temp/npz/'#temperature data, used in msource.th
 p.sflux_dir  = '../sflux'                         #have to be relative path
-p.setup_dir  = '../setup_files'                   #including files other than the forcing files generated here
+p.WW3 = '/scratch/user/jdu/WWIII-Ifremer/Global/ECMWF/Final/'
+p.bdir  = '../setup_files/'                   #including files other than the forcing files generated here
 
-p.flag['*.gr3']          =       1    
-p.flag['tvd.prop']       =       1
-p.flag['bctides.in']     =       1
-p.flag['hotstart.nc']    =       1
-p.flag['elev2D.th.nc']   =       1
-p.flag['TEM_3D.th.nc']   =       1
-p.flag['SAL_3D.th.nc']   =       1
-p.flag['uv3D.th.nc']     =       1
-p.flag['TEM_nu.nc']      =       1
-p.flag['SAL_nu.nc']      =       1
-p.flag['source_sink.in'] =       1
-p.flag['vsource.th']     =       1
-p.flag['msource.th']     =       1
-p.flag['sflux']          =       1
-p.flag['check']          =       1
-p.flag['run grace']      =       1                #prepare model run on sciclone
+p.flag['WWM']            =       0   #wave module
+p.flag['SED']            =       1   #sediment module
+
+p.flag['*.gr3']          =       1   #hydro+SED 
+p.flag['tvd.prop']       =       0   #hydro
+p.flag['bctides.in']     =       0   #hydro
+p.flag['hotstart.nc']    =       0   #hydro+SED
+p.flag['elev2D.th.nc']   =       0   #hydro
+p.flag['TEM_3D.th.nc']   =       0   #hydro
+p.flag['SAL_3D.th.nc']   =       0   #hydro
+p.flag['uv3D.th.nc']     =       0   #hydro
+p.flag['TEM_nu.nc']      =       0   #hydro
+p.flag['SAL_nu.nc']      =       0   #hydro
+p.flag['source_sink.in'] =       0   #hydro
+p.flag['vsource.th']     =       0   #hydro
+p.flag['msource.th']     =       0   #hydro+SED
+p.flag['sflux']          =       0   #hydro
+p.flag['check']          =       0
+p.flag['run grace']      =       0                #prepare model run on sciclone
+
+bdir=p.bdir
 #%% ===========================================================================
 # copy grid files
 #==============================================================================
@@ -50,20 +56,23 @@ for fname in ['hgrid.gr3','hgrid.ll','vgrid.in','grid.npz']:
     if sname!=fname: os.symlink(sname,fname)
 gd=loadz(p.grd).hgrid
 
-for fname in p.flag:
+for fname in p.flag:  #make symbolic link for files in base run
     if p.flag[fname]==2:
-        sfname=os.path.relpath(os.path.realpath(p.base_run+'/'+fname))
+        sfname=os.path.relpath(os.path.realpath(p.base+'/'+fname))
         os.system(f'ln -sf {sfname} {fname}')
         p.flag[fname]=0
 #%% ===========================================================================
 # generating gr3 files
 #==============================================================================
 if p.flag['*.gr3']==1:
-    vars={'albedo':0.15,'diffmin':1e-6,'diffmax':1e-2,'drag':2.5e-3,'manning':1.6e-2,
-            'shapiro':5e-1,'watertype':1.0,'windrot_geo2proj':0.0,'xlsc':5e-1}
+    vars={'albedo.gr3':0.15,'diffmin.gr3':1e-6,'diffmax.gr3':1e-2,'drag.gr3':2.5e-3,'manning.gr3':1.6e-2,
+          'shapiro.gr3':5e-1,'watertype.gr3':1.0,'windrot_geo2proj.gr3':0.0,'xlsc.gr3':5e-1,
+          'SED_hvar_1.ic':0,'SED_hvar_2.ic':0,'SED_hvar_3.ic':0,'SED_hvar_4.ic':0,
+          'rough.gr3':1e-4,'bedthick.ic':5.0}  
     for var in vars:
-        print(f'writing {var}.gr3 with value of {vars[var]}')
-        gd.write_hgrid(f'{var}.gr3',value=vars[var])
+        if p.flag['SED']==0 and var.startswith(('SED','bed')): continue
+        print(f'writing {var} with value of {vars[var]}')
+        gd.write_hgrid(f'{var}',value=vars[var])
 
     print('writing SAL_nudge.gr3')
     miny=gd.y.min()
@@ -86,9 +95,9 @@ if p.flag['bctides.in']==1:
     #input
     #---------------------------------------------------------------------
     tnames=['O1','K1','Q1','P1','M2','S2','K2','N2']
-    tmp=num2date(p.begin_time)
+    tmp=num2date(p.StartT)
     StartT=[tmp.year,tmp.month,tmp.day,tmp.hour]
-    nday=p.begin_time-p.end_time  #number of days
+    nday=p.StartT-p.EndT  #number of days
     ibnds=[1,]           #order of open boundaries (starts from 1)
     flags=[[5,5,4,4],]   #SCHISM bnd flags for each boundary
     Z0=0.0               #add Z0 constant if Z0!=0.0
@@ -199,7 +208,7 @@ if p.flag['hotstart.nc']:
     #------------------------------------------------------------------------------
     #input
     #------------------------------------------------------------------------------
-    StartT=p.begin_time
+    StartT=p.StartT
     dir_hycom=p.hycom_dir #'../../Observations/hycom/Data/'
     
     #------------------------------------------------------------------------------
@@ -338,7 +347,7 @@ if p.flag['hotstart.nc']:
 # generating ocean boundary file based on hycom
 #==============================================================================
 if 1 in [p.flag[fname] for fname in ['elev2D.th.nc','TEM_3D.th.nc','SAL_3D.th.nc','uv3D.th.nc']]:
-    StartT=p.begin_time; EndT=p.end_time; dt=1/8
+    StartT=p.StartT; EndT=p.EndT; dt=1/8
     dir_hycom=p.hycom_dir
     iLP=1; fc=0.5  #iLP=1: remove tidal signal with cutoff frequency fc (day)
     ifix=0  #ifix=0: fix hycom nan 1st, then interp;  ifix=1: interp 1st, then fixed nan
@@ -524,7 +533,7 @@ if 1 in [p.flag[fname] for fname in ['elev2D.th.nc','TEM_3D.th.nc','SAL_3D.th.nc
 # nudging nc files
 #=============================================================================
 if p.flag['TEM_nu.nc']==1 or p.flag['SAL_nu.nc']==1:
-    StartT=p.begin_time; EndT=p.end_time; dt=1
+    StartT=p.StartT; EndT=p.EndT; dt=1
     dir_hycom=p.hycom_dir
     iLP=1; fc=0.5  #iLP=1: remove tidal signal with cutoff frequency fc (day)
     
@@ -669,7 +678,7 @@ if 1 in [p.flag[fname] for fname in ['source_sink.in','vsource.th','msource.th']
     #==================================================================
     # Inputs
     #==================================================================
-    begin_time=p.begin_time; end_time=p.end_time #for model forcing
+    begin_time=p.StartT; end_time=p.EndT #for model forcing
     flow_dir=p.flow_dir #'../../Observations/usgs_flow/npz/'
     temp_dir=p.temp_dir #'../../Observations/usgs_temp/npz/'
              #river name      #usgs     #lon&lat to model  #flow ratio #temp station                
@@ -811,7 +820,7 @@ if p.flag['sflux']==1:
    bdir=os.path.abspath(os.path.curdir); tdir=os.path.abspath(tdir)
    if fexist(tdir): os.system('rm -rf {}'.format(tdir))
    os.mkdir(tdir); os.chdir(tdir)
-   mtime=arange(p.begin_time,p.end_time+1); svars=['air','rad','prc']
+   mtime=arange(p.StartT,p.EndT+1); svars=['air','rad','prc']
    for irec,ti in enumerate(mtime):
        #link each file
        year=num2date(ti).year; month=num2date(ti).month; day=num2date(ti).day
@@ -822,6 +831,66 @@ if p.flag['sflux']==1:
    #write sflux_inputs.txt
    fid=open('{}/sflux_inputs.txt'.format(tdir),'w+'); fid.write('&sflux_inputs\n   \n/'); fid.close()
    os.chdir(bdir)
+
+#%% ========================================================================
+# parameter files
+#===========================================================================
+fname='param.nml'; sname='{}/{}'.format(p.base,fname)
+if fexist(sname):
+    copyfile(sname,fname); print('copy {} from {}'.format(fname,p.base))
+else:
+    copyfile(bdir+'param/'+fname,fname); print('writing {}'.format(fname))
+if p.flag['WWM']==1: chparam(fname,'ics',2)
+chparam(fname,'start_year',num2date(p.StartT).year)
+chparam(fname,'start_month',num2date(p.StartT).month)
+chparam(fname,'start_day',num2date(p.StartT).day)
+chparam(fname,'rnday',int(p.EndT-p.StartT))
+
+fname='sediment.nml'; sname='{}/{}'.format(p.base,fname)
+if p.flag['SED']==1:
+   if fexist(sname):
+      copyfile(sname,fname); print('copy {} from {}'.format(fname,p.base))
+   else:
+      copyfile(bdir+'param/'+fname,fname); print('writing {}'.format(fname))
+
+fname='wwminput.nml'; sname='{}/{}'.format(p.base,fname)
+if p.flag['WWM']==1:
+   if fexist(sname):
+      copyfile(sname,fname); print('copy {} from {}'.format(fname,p.base))
+   else:
+      copyfile(bdir+'param/'+fname,fname); print('writing {}'.format(fname))
+   chparam(fname,'BEGTC',"'{}'".format(num2date(p.StartT).strftime('%Y%m%d.000000')))
+   chparam(fname,'ENDTC',"'{}'".format(num2date(p.EndT).strftime('%Y%m%d.000000')))
+   chparam(fname,'BEGTC_OUT',num2date(p.StartT).strftime('%Y%m%d.000000'))
+   chparam(fname,'ENDTC_OUT',num2date(p.EndT).strftime('%Y%m%d.000000'))
+#%% ==========================================================================
+# generating needed file for WWM
+#=============================================================================
+if p.flag['WWM']==1:
+    fname='hgrid_WWM.gr3'
+    print('writing '+fname)
+    gd=loadz(p.grd).hgrid; gd.split_quads_wwm(fname)
+
+    fname='wwmbnd.gr3'
+    print('writing '+fname)
+    gd=loadz(p.grd).hgrid; gd.dp[:]=0; gd.dp[gd.iobn[0]]=2
+    gd.save(fname)
+
+    print('writing '+fname)
+    y1=num2date(p.StartT).year; y2=num2date(p.EndT).year; bfiles=[]
+    for yy in arange(y1,y2+1):
+        for mm in arange(1,13):
+            for svar in ['dir','fp','hs','spr','t02']:
+                sname='WW3-GLOB-30M_{:04d}{:02d}_{}.nc'.format(yy,mm,svar)
+                fname=p.WW3+'/{}/{}'.format(yy,sname)
+                if not fexist(fname): continue
+                if os.path.exists(sname): os.remove(sname)
+                os.symlink(os.path.relpath(fname),sname); bfiles.append(sname)
+
+    #write bndfiles.dat
+    fid=open('bndfiles.dat','w+')
+    for bfile in bfiles: fid.write(bfile+'\n')
+    fid.close()
 
 #%% ==========================================================================
 # checking generated forcing files
@@ -840,7 +909,7 @@ if p.flag['run grace']==1:
     os.mkdir(f'../../{run}')
     cmd=f'cd ../../{run}; ln -sf ../Inputs/{run}/* .'
     print(cmd); os.system(cmd)
-    cmd=f'cd ../../{p.base_run}; cp -P param.nml run.grace pschism_GRACE* ../{run}'
+    cmd=f'cd ../../{p.base}; cp -P param.nml run.grace pschism_GRACE* ../{run}'
     print(cmd); os.system(cmd)
     cmd=f'cd ../../{run}; mkdir outputs; rm zfig*.png'
     print(cmd); os.system(cmd)
