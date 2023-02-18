@@ -9,7 +9,7 @@ from pylib import *
 close("all")
 
 p=zdata(); p.flag={}  #parameters
-p.base   = 'run16a'   #for file with flag==2, a symbolic link will be generated
+p.base   = '../run16a'   #for file with flag==2, a symbolic link will be generated
 p.StartT =  datenum(2018,1,1)
 p.EndT   =  datenum(2020,1,1)                 
 p.grid_dir   = '../../Grids/V2d' #grid, including hgrid.ll, hgrid.gr3,grid.npz,vgrid.in, rivers.bp
@@ -26,10 +26,10 @@ p.bdir  = '../setup_files/'                   #including files other than the fo
 p.flag['WWM']            =       0   #wave module
 p.flag['SED']            =       1   #sediment module
 
-p.flag['*.gr3']          =       1   #hydro+SED 
+p.flag['*.gr3']          =       0   #hydro+SED 
 p.flag['tvd.prop']       =       0   #hydro
-p.flag['bctides.in']     =       0   #hydro
-p.flag['hotstart.nc']    =       1   #hydro+SED
+p.flag['bctides.in']     =       0   #hydro+SED
+p.flag['hotstart.nc']    =       0   #hydro+SED
 p.flag['elev2D.th.nc']   =       0   #hydro
 p.flag['TEM_3D.th.nc']   =       0   #hydro
 p.flag['SAL_3D.th.nc']   =       0   #hydro
@@ -39,6 +39,7 @@ p.flag['SAL_nu.nc']      =       0   #hydro
 p.flag['source_sink.in'] =       0   #hydro
 p.flag['vsource.th']     =       0   #hydro
 p.flag['msource.th']     =       0   #hydro+SED
+p.flag['source.nc']      =       1   #hydro+SED
 p.flag['sflux']          =       0   #hydro
 p.flag['check']          =       0
 p.flag['run grace']      =       0                #prepare model run on sciclone
@@ -83,7 +84,8 @@ if p.flag['*.gr3']==1:
     
     if p.flag['SED']==1:
         vars={'SED_hvar_1.ic':0,'SED_hvar_2.ic':0,'SED_hvar_3.ic':0,'SED_hvar_4.ic':0,
-          'rough.gr3':1e-4,'bedthick.ic':5.0}
+          'rough.gr3':1e-4,'bedthick.ic':5.0,'bed_frac_1.ic':0,'bed_frac_2.ic':0.25,
+          'bed_frac_3.ic':0.25,'bed_frac_4.ic':0.5}
         for var in vars:
             print(f'writing {var} with value of {vars[var]}')
             gd.write_hgrid(f'{var}',value=vars[var])
@@ -712,7 +714,7 @@ if p.flag['TEM_nu.nc']==1 or p.flag['SAL_nu.nc']==1:
 #%% ===========================================================================
 # generating source and sink
 #==============================================================================
-if 1 in [p.flag[fname] for fname in ['source_sink.in','vsource.th','msource.th']]:
+if 1 in [p.flag[fname] for fname in ['source_sink.in','vsource.th','msource.th','source.nc']]:
     #==================================================================
     # Inputs
     #==================================================================
@@ -768,7 +770,7 @@ if 1 in [p.flag[fname] for fname in ['source_sink.in','vsource.th','msource.th']
     #==================================================================
     # gen source_sink.in, find source and sink element near the boundary, check the element depth
     #==================================================================
-    if p.flag['source_sink.in']==1:
+    if p.flag['source_sink.in']==1 or p.flag['source.nc']:
         print('writing source_sink.in')
         gd=loadz(p.grd).hgrid
         gd.compute_ctr()
@@ -779,6 +781,7 @@ if 1 in [p.flag[fname] for fname in ['source_sink.in','vsource.th','msource.th']
             fp=near_pts([rivers[river][1],rivers[river][2]],c_[gd.xctr,gd.yctr])
             f.write(f'{fp+1}  !{m+1} {river} \n')
             fps.append(fp)
+        fps=array(fps)
         f.write('\n'); f.write('0') #0 for the sink number
         f.close()
         if p.flag['check']==1:
@@ -791,7 +794,7 @@ if 1 in [p.flag[fname] for fname in ['source_sink.in','vsource.th','msource.th']
     #==================================================================
     # gen vsource.th
     #==================================================================
-    if p.flag['vsource.th']==1:
+    if p.flag['vsource.th']==1 or p.flag['source.nc']:
         print('writing vsource.th')
         times=arange(begin_time,end_time)
         for m,river in enumerate(rivers):
@@ -811,17 +814,17 @@ if 1 in [p.flag[fname] for fname in ['source_sink.in','vsource.th','msource.th']
                     
         fp=data<0
         if sum(fp)>0: print('    there is negative flow; zero value will be used')
-        data[data<0]=0
+        data[data<0]=0; vsource=data
         with open('vsource.th','w') as f:
             import numpy as np
-            mat = np.matrix(data)
+            mat = np.matrix(vsource)
             for line in mat:
                 np.savetxt(f, line, fmt='%.2f')
     
     #==================================================================
     # gen msource.th  get temperature from USGS and noaa
     #==================================================================
-    if p.flag['msource.th']==1:
+    if p.flag['msource.th']==1 or p.flag['source.nc']:
         for m,river in enumerate(rivers):
             if m==0:
                 data=(times-begin_time)*86400
@@ -838,6 +841,7 @@ if 1 in [p.flag[fname] for fname in ['source_sink.in','vsource.th','msource.th']
             data=c_[data,tmp]
         
         data=c_[data,0*data[:,1:]] #add salinity
+        msource=data
         print('writing msource.th')
         with open('msource.th','w') as f:
             import numpy as np
@@ -845,6 +849,26 @@ if 1 in [p.flag[fname] for fname in ['source_sink.in','vsource.th','msource.th']
             for line in mat:
                 np.savetxt(f, line, fmt='%.2f')
 
+    if p.flag['source.nc']:
+        ntr=2; nsource=len(fps); nt=len(vsource)
+        trs=zeros([nt,ntr,nsource])
+        if p.flag['SED']: 
+            ntr=ntr+4;
+            trs=zeros([nt,ntr,nsource])
+            trs[:,3:,:]=0.02 #0.02g/l for sediment class 2-4
+        flow=vsource[:,1:]; trs[:,0:2]=reshape(msource[:,1:],[nt,2,nsource]) #temp, and sal
+        if len(flow)!=len(trs): sys.exit('time dimension in vsource and msource should be same')
+        nd=zdata()
+        nd.dimname=['nsources','nsinks','ntracers','time_msource','time_vsource','time_vsink','one']
+        nd.dims=[nsource,0,ntr,nt,nt,0,1]
+        vi=zdata(); vi.dimname=('nsources',); vi.val=fps+1; nd.source_elem=vi
+        vi=zdata(); vi.dimname=('time_vsource','nsources'); vi.val=flow.astype('float32'); nd.vsource=vi
+        vi=zdata(); vi.dimname=('time_msource','ntracers','nsources'); vi.val=trs.astype('float32'); nd.msource=vi
+        vi=zdata(); vi.dimname=('one',); vi.val=array(86400.0); nd.time_step_msource=vi
+        vi=zdata(); vi.dimname=('one',); vi.val=array(86400.0); nd.time_step_vsource=vi
+        vi=zdata(); vi.dimname=('one',); vi.val=array(1e10);    nd.time_step_vsink=vi
+        WriteNC('source.nc',nd)
+        
 #%% ==========================================================================
 # generating sflux files by linking to existing sflux files
 #=============================================================================
@@ -874,6 +898,7 @@ if p.flag['sflux']==1:
 # parameter files
 #===========================================================================
 fname='param.nml'; sname='{}/{}'.format(p.base,fname)
+bdir=p.bdir
 if fexist(sname):
     copyfile(sname,fname); print('copy {} from {}'.format(fname,p.base))
 else:
