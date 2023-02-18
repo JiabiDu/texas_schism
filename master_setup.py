@@ -29,7 +29,7 @@ p.flag['SED']            =       1   #sediment module
 p.flag['*.gr3']          =       1   #hydro+SED 
 p.flag['tvd.prop']       =       0   #hydro
 p.flag['bctides.in']     =       0   #hydro
-p.flag['hotstart.nc']    =       0   #hydro+SED
+p.flag['hotstart.nc']    =       1   #hydro+SED
 p.flag['elev2D.th.nc']   =       0   #hydro
 p.flag['TEM_3D.th.nc']   =       0   #hydro
 p.flag['SAL_3D.th.nc']   =       0   #hydro
@@ -66,14 +66,12 @@ for fname in p.flag:  #make symbolic link for files in base run
 #==============================================================================
 if p.flag['*.gr3']==1:
     vars={'albedo.gr3':0.15,'diffmin.gr3':1e-6,'diffmax.gr3':1e-2,'drag.gr3':2.5e-3,'manning.gr3':1.6e-2,
-          'shapiro.gr3':5e-1,'watertype.gr3':1.0,'windrot_geo2proj.gr3':0.0,'xlsc.gr3':5e-1,
-          'SED_hvar_1.ic':0,'SED_hvar_2.ic':0,'SED_hvar_3.ic':0,'SED_hvar_4.ic':0,
-          'rough.gr3':1e-4,'bedthick.ic':5.0}  
+          'shapiro.gr3':5e-1,'watertype.gr3':1.0,'windrot_geo2proj.gr3':0.0,'xlsc.gr3':5e-1}  
     for var in vars:
         if p.flag['SED']==0 and var.startswith(('SED','bed')): continue
         print(f'writing {var} with value of {vars[var]}')
         gd.write_hgrid(f'{var}',value=vars[var])
-
+    
     print('writing SAL_nudge.gr3')
     miny=gd.y.min()
     maxx=gd.x.max()
@@ -82,6 +80,14 @@ if p.flag['*.gr3']==1:
     pvi[pvi<0]=0
     gd.write_hgrid(f'SAL_nudge.gr3',value=pvi)
     os.system('ln -sf SAL_nudge.gr3 TEM_nudge.gr3')
+    
+    if p.flag['SED']==1:
+        vars={'SED_hvar_1.ic':0,'SED_hvar_2.ic':0,'SED_hvar_3.ic':0,'SED_hvar_4.ic':0,
+          'rough.gr3':1e-4,'bedthick.ic':5.0}
+        for var in vars:
+            print(f'writing {var} with value of {vars[var]}')
+            gd.write_hgrid(f'{var}',value=vars[var])
+        os.system('ln -sf SAL_nudge.gr3 SED_nudge.gr3')
 
 if p.flag['tvd.prop']==1:
     #generate tvd.prop
@@ -100,6 +106,7 @@ if p.flag['bctides.in']==1:
     nday=p.StartT-p.EndT  #number of days
     ibnds=[1,]           #order of open boundaries (starts from 1)
     flags=[[5,5,4,4],]   #SCHISM bnd flags for each boundary
+    if p.flag['SED']==1: flags=[[5,5,4,4,3],] #elevation, velocity, temp, salt, sed
     Z0=0.0               #add Z0 constant if Z0!=0.0
     bdir=p.tide_dir
     
@@ -198,6 +205,7 @@ if p.flag['bctides.in']==1:
                 fid.write('{:8.6f} {:.6f} {:8.6f} {:.6f}\n'.format(*ap[1,m,k],*ap[2,m,k]))
     fid.write('1 !temperature relax\n')
     fid.write('1 !salinity relax\n')
+    if p.flag['SED']==1: fid.write('0.1 !SED nudge\n')
     fid.close()
     #to be revised if river boundary is included. 
 
@@ -342,6 +350,36 @@ if p.flag['hotstart.nc']:
             close('all')
         
     WriteNC('hotstart.nc',nd)
+
+    #-- add SED3D components in hotstart.nc
+    if p.flag['SED']==1:
+        print('writing hotstart.nc for SED3D model')
+        #read data
+        C=ReadNC('hotstart.nc'); 
+        # read bed fraction data, in npz format (x,y,bedfract (nsed,len(x)))
+        #M=loadz(p.bedfrac)
+        M=zdata(); M.x=[-94.8219,]; M.y=[29.4948,]; M.bedfrac=array([[0.0,0.25,0.25,0.5]]).T
+        gd=loadz(p.grd).hgrid; vd=loadz(p.grd).vgrid; np,ne,nvrt=gd.np,gd.ne,vd.nvrt;
+        gd.x,gd.y=gd.lon,gd.lat; gd.compute_ctr(); lxy=c_[gd.xctr,gd.yctr]
+  
+        #compute bedfraction
+        sindp=near_pts(lxy,c_[M.x,M.y])
+        bp=read_schism_reg(bdir+'region/galveston.reg'); fp=inside_polygon(lxy,bp.x,bp.y)==0
+        bfrac=array([i[sindp] for i in M.bedfrac]); bfrac[:,fp]=0; bfrac[-1]=1-bfrac[:3].sum(axis=0)
+  
+        #change dimensions
+        C.dimname=[*C.dimname,'sed_class','nbed', 'MBEDP']; C.dims=[*C.dims,4,1,3]
+        vid=C.dimname.index('ntracers'); C.dims[vid]=C.dims[vid]+4; ntr=C.dims[vid]
+  
+        #add constant variables
+        C.vars=[*C.vars,'SED3D_dp','SED3D_rough','SED3D_bed','SED3D_bedfrac']
+        vi=zdata(); vi.dimname=('node',); C.SED3D_dp=gd.dp  #depth
+        vi=zdata(); vi.dimname=('node'); vi.val=1e-4*ones(np); C.SED3D_rough=vi #roughness
+        vi=zdata(); vi.dimname=('elem','nbed','MBEDP'); vi.val=tile(array([5,0,0.9]),[ne,1,1]).astype('float32'); C.SED3D_bed=vi #thickness,,porocity
+        vi=zdata(); vi.dimname=('elem','nbed','sed_class'); vi.val=bfrac.T[:,None,:].astype('float32'); C.SED3D_bedfrac=vi #fraction
+        C.tr_el.val=resize(array(C.tr_el.val),[ne,nvrt,ntr])
+        C.tr_nd.val=resize(array(C.tr_nd.val),[np,nvrt,ntr]); C.tr_nd0.val=C.tr_nd.val
+        WriteNC('hotstart.nc',C)
 
 #%%============================================================================
 # generating ocean boundary file based on hycom
