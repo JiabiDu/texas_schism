@@ -5,15 +5,17 @@ close('all')
 #----------------------------------------------------------------------
 #inputs
 #----------------------------------------------------------------------
-grd=[i for i in os.listdir('.') if i.endswith('.2dm')][0]
+grd=os.getcwd().split('/')[-1]+'.2dm'
+if not fexist(grd): sys.exit(f'{grd} not exist')
+#grd=[i for i in os.listdir('.') if i.endswith('.2dm')][0]
 prj='epsg:4326'  #projection of grd
-bxy='../base/bxy.bp' #lon&lat of bnd nodes
+bxy='../base/bxy2.bp' #lon&lat of bnd nodes
 headers=("etopo1","crm_3arcs","cdem13_",'ncei19_2019v1_',"cb_bay_dem_v3.1_ll") #DEM headers
 headers=("etopo1","ncei19_MS_LA", "ncei19_AL_nwFL","ncei19_TX")
-
 bdir=r'/scratch/user/jdu/DEM/npz'  #directory of DEM data
 ogd=read_schism_hgrid('../v000/hgrid.gr3') #bathymetry in east Miss is used.  
 use_lsc2=False
+
 #----------------------------------------------------------------------
 #get hgrid.gr3, hgrid.ll and vgrid.in
 #----------------------------------------------------------------------
@@ -40,11 +42,11 @@ print('set min depth to 0.5m')
 gd.dp[gd.dp<0.5]=0.5
 
 # change grid bathymetry east to -93.6 based on original one
-print('use old grid bathymetry for region with x>-93.6')
-fp=near_pts(c_[gd.x,gd.y],c_[ogd.x,ogd.y])
-newdp=ogd.dp[fp]
-fp=gd.x>-93.6
-gd.dp[fp]=newdp[fp]
+#print('use old grid bathymetry for region with x>-93.6')
+#fp=near_pts(c_[gd.x,gd.y],c_[ogd.x,ogd.y])
+#newdp=ogd.dp[fp]
+#fp=gd.x>-93.6
+#gd.dp[fp]=newdp[fp]
 
 #save grid
 gd.save('hgrid.gr3',fmt=1)
