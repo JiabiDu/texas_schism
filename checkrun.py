@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 #check runtime for each run
-from pylib import datetime,read_schism_param,re
+#from pylib import datetime,read_schism_param,re
+import datetime,re
 import os
 import sys
 import subprocess
@@ -9,8 +10,34 @@ import subprocess
 runs=['RUN01d','RUN02p','RUN02q']
 
 if len(sys.argv)!=1: runs=sys.argv[1:]
+#%% some functions
+def read_schism_param(fname,fmt=0):
+    '''
+    read schism parameters from param.nml/param.in/cosine.in
+      fmt=0: return dictionary with all field as string
+    '''
+
+    #read all lines first
+    fid=open(fname,'r'); lines=[i.strip() for i in fid.readlines()]; fid.close()
+    lines=[i for i in lines if ('=' in i) and (i!='') and (i[0]!='!') and (i[0]!='&')]
+
+    #parse each line
+    P={}
+    for line in lines:
+      if '!' in line: line=line[:line.find('!')]
+      keyi,vali=line.split('='); keyi=keyi.strip(); vali=vali.strip()
+      if fmt in [1,3]:  #convert string to float
+         try:
+            vali=[float(i) if (('.' in i) or ('e' in i) or ('E' in i)) else int(i) for i in vali.replace(',',' ').replace(';',' ').split()]
+            if len(vali)==1: vali=vali[0]
+         except:
+            pass
+      P[keyi]=vali
+    param=P
+
+    return param
+
 #--compute runtime----------------------------------------------------
-if len(sys.argv)!=1: runs=sys.argv[1:]
 for run in runs:
     fname='{}/mirror.out'.format(run)
     if not os.path.exists(fname): fname='{}/outputs/mirror.out'.format(run)

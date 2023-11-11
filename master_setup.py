@@ -11,40 +11,40 @@ close("all")
 p=zdata(); p.flag={}  #parameters
 p.base   = '../run19a'   #for file with flag==2, a symbolic link will be generated
 p.StartT =  datenum(2018,1,1)
-p.EndT   =  datenum(2018,1,30)                 
-p.grid_dir   = '../../Grids/V3a' #grid, including hgrid.ll, hgrid.gr3,grid.npz,vgrid.in, rivers.bp
-p.hot_base   = None #'../setup_files/2018_sz_40layer.npz' #from previous run, only for grids with depth less than hot_base_h
+p.EndT   =  datenum(2019,12,31)                 
+p.grid_dir   = '../../Grids/V2p' #grid, including hgrid.ll, hgrid.gr3,grid.npz,vgrid.in, rivers.bp
+p.hot_base   = '../setup_files/2018_sz_40layer.npz' #from previous run, only for grids with depth less than hot_base_h
 p.hot_base_h = 20                                 #depth for which the hot_base will be used. deeper water will still base on hycom
 p.tide_dir   = r'/scratch/user/jdu/FES2014'       #FES tide and script to ajust nodal
-p.hycom_dir  = '../../Observations/hycom03/Data/'   #hycom data
+p.hycom_dir  = '../../Observations/hycom/Data/'   #hycom data
 p.flow_dir   = '../../Observations/usgs_flow/npz/'#flow data, used in vsource.th
 p.temp_dir   = '../../Observations/usgs_temp/npz/'#temperature data, used in msource.th
 p.sflux_dir  = r'/scratch/user/jdu/NARR'       #have to be relative path
 p.WW3 = '/scratch/user/jdu/WWIII-Ifremer/Global/ECMWF/Final/'
 p.bdir  = '../setup_files/'                   #including files other than the forcing files generated here
-p.tide_adj={'M2':1,'S2':1,'K2':1,'N2':1,'O1':1.0,'K1':1.0,'Q1':1,'P1':1} #adj for each tide
 
 p.flag['WWM']            =       0   #wave module
 p.flag['SED']            =       0   #sediment module
 
 p.flag['param.nml']      =       0   #hydro
-p.flag['*.gr3']          =       0   #hydro+SED 
-p.flag['tvd.prop']       =       0   #hydro
-p.flag['bctides.in']     =       0   #hydro+SED
-p.flag['hotstart.nc']    =       0   #hydro+SED
+p.flag['*.gr3']          =       1   #hydro+SED 
+p.flag['tvd.prop']       =       1   #hydro
+p.flag['bctides.in']     =       1   #hydro+SED
+p.flag['hotstart.nc']    =       1   #hydro+SED
 p.flag['elev2D.th.nc']   =       1   #hydro
 p.flag['TEM_3D.th.nc']   =       1   #hydro
 p.flag['SAL_3D.th.nc']   =       1   #hydro
 p.flag['uv3D.th.nc']     =       1   #hydro
-p.flag['TEM_nu.nc']      =       0   #hydro
-p.flag['SAL_nu.nc']      =       0   #hydro
+p.flag['TEM_nu.nc']      =       1   #hydro
+p.flag['SAL_nu.nc']      =       1   #hydro
+p.flag['source.nc']      =       1   #hydro+SED
 p.flag['source_sink.in'] =       0   #hydro
 p.flag['vsource.th']     =       0   #hydro
 p.flag['msource.th']     =       0   #hydro+SED
-p.flag['source.nc']      =       0   #hydro+SED
 p.flag['sflux']          =       0   #hydro
 p.flag['check']          =       0
 p.flag['run grace']      =       0                #prepare model run on sciclone
+
 bdir=p.bdir
 #%% ===========================================================================
 # copy grid files
@@ -74,19 +74,12 @@ if p.flag['*.gr3']==1:
         print(f'writing {var} with value of {vars[var]}')
         gd.write_hgrid(f'{var}',value=vars[var])
     
-    print('writing SAL_nudge.gr3') 
-    #get distance from the boundary; see equation in https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line
-    bp=read_schism_bpfile(p.grid_dir+'/bxy2.bp')
-    x1,x2,x3,x4=bp.x; y1,y2,y3,y4=bp.y
-    dist01=abs((x2-x1)*(y1-gd.y)-(x1-gd.x)*(y2-y1))/sqrt((x2-x1)**2+(y2-y1)**2)
-    dist02=abs((x4-x3)*(y3-gd.y)-(x3-gd.x)*(y4-y3))/sqrt((x4-x3)**2+(y4-y3)**2)
-    dis=c_[dist01,dist02].min(axis=1)
-    # miny=gd.y.min()
-    # maxx=gd.x.max()
-    # dis=c_[maxx-gd.x,gd.y-miny].min(axis=1)
+    print('writing SAL_nudge.gr3')
+    miny=gd.y.min()
+    maxx=gd.x.max()
+    dis=c_[maxx-gd.x,gd.y-miny].min(axis=1)
     pvi=2.1e-5*(0.5-dis)/0.5
     pvi[pvi<0]=0
-    pvi[gd.x<=-87.228]=0
     gd.write_hgrid(f'SAL_nudge.gr3',value=pvi)
     os.system('ln -sf SAL_nudge.gr3 TEM_nudge.gr3')
     
@@ -110,14 +103,13 @@ if p.flag['bctides.in']==1:
     #---------------------------------------------------------------------
     #input
     #---------------------------------------------------------------------
-    # tnames=['O1','K1','Q1','P1','M2','S2','K2','N2']
-    tnames=[tname for tname in p.tide_adj]
+    tnames=['O1','K1','Q1','P1','M2','S2','K2','N2']
     tmp=num2date(p.StartT)
     StartT=[tmp.year,tmp.month,tmp.day,tmp.hour]
     nday=p.StartT-p.EndT  #number of days
-    ibnds=arange(gd.nob)+1           #order of open boundaries (starts from 1)
-    flags=tile([5,5,4,4],[gd.nob,1])   #SCHISM bnd flags for each boundary
-    if p.flag['SED']==1: flags=tile([5,5,4,4,3],[gd.nob,1]) #elevation, velocity, temp, salt, sed
+    ibnds=[1,]           #order of open boundaries (starts from 1)
+    flags=[[5,5,4,4],]   #SCHISM bnd flags for each boundary
+    if p.flag['SED']==1: flags=[[5,5,4,4,3],] #elevation, velocity, temp, salt, sed
     Z0=0.0               #add Z0 constant if Z0!=0.0
     bdir=p.tide_dir
     
@@ -200,10 +192,7 @@ if p.flag['bctides.in']==1:
                 api.append(apii)
             ap.append(api)
         ap=array(ap).transpose([1,0,3,2])
-        #some adjustment on different tide
-        for m,tname in enumerate(tnames):
-            print(tname,'amplitide *',p.tide_adj[tname])
-            ap[:,m,:,0]*=p.tide_adj[tname]    #elevation, u, v; itide; inode; amp,phase 
+    
         #write tidal amp and pha for elev 
         if Z0!=0: fid.write('Z0\n'); [fid.write('{} 0.0\n'.format(Z0)) for i in arange(nobn)]
         for m,tname in enumerate(tnames):  
@@ -217,9 +206,9 @@ if p.flag['bctides.in']==1:
             fid.write('{}\n'.format(tname.lower()))
             for k in arange(nobn):
                 fid.write('{:8.6f} {:.6f} {:8.6f} {:.6f}\n'.format(*ap[1,m,k],*ap[2,m,k]))
-        fid.write('1 !temperature relax\n')
-        fid.write('1 !salinity relax\n')
-        if p.flag['SED']==1: fid.write('0.1 !SED nudge\n')
+    fid.write('1 !temperature relax\n')
+    fid.write('1 !salinity relax\n')
+    if p.flag['SED']==1: fid.write('0.1 !SED nudge\n')
     fid.close()
     #to be revised if river boundary is included. 
 
@@ -241,7 +230,7 @@ if p.flag['hotstart.nc']:
     mvars=['temp','salt']
     
     #find hycom file
-    fnames=array([i for i in os.listdir(dir_hycom) if i.endswith('.nc')])
+    fnames=array([i for i in os.listdir(dir_hycom) if i.endswith('.nc') and i.startswith('hycom_')])
     mti=array([datenum(*array(i.replace('.','_').split('_')[1:5]).astype('int')) for i in fnames])
     if abs(mti-StartT).min()>1: system.exit('the availabe hycom file is too far away from the StartT')
     fpt=nonzero(abs(mti-StartT)==min(abs(mti-StartT)))[0][0]; fname=fnames[fpt]
@@ -346,7 +335,8 @@ if p.flag['hotstart.nc']:
         fp=gd.dp<=p.hot_base_h 
         for k in arange(nvrt):
             print('interpolation for layer',k,'from',p.hot_base,min(len(C.salt[0])-1,k))
-            tmptemp,tmpsalt=C.temp[:,min(len(C.salt[0])-1,k)], C.salt[:,min(len(C.salt[0])-1,k)]
+            #tmptemp,tmpsalt=C.temp[:,min(len(C.salt[0])-1,k)], C.salt[:,min(len(C.salt[0])-1,k)]
+            tmptemp,tmpsalt=C.temp[:,-1], C.salt[:,-1] #only surface layer is used
             mfp=(abs(tmptemp)<99)*(abs(tmpsalt)<99)
             nd.tr_nd.val[fp,k,0]=sp.interpolate.griddata(mxy[mfp],tmptemp[mfp],bxy[fp],'nearest',rescale=True)
             nd.tr_nd.val[fp,k,1]=sp.interpolate.griddata(mxy[mfp],tmpsalt[mfp],bxy[fp],'nearest',rescale=True)
@@ -414,7 +404,7 @@ if 1 in [p.flag[fname] for fname in ['elev2D.th.nc','TEM_3D.th.nc','SAL_3D.th.nc
     mvars=['elev','temp','salt',['u','v']] #varialbes in schism
     
     #find all hycom files
-    fnames=array([i for i in os.listdir(dir_hycom) if i.endswith('.nc')])
+    fnames=array([i for i in os.listdir(dir_hycom) if i.endswith('.nc') and i.startswith('hycom_')])
     mti=array([datenum(*array(i.replace('.','_').split('_')[1:5]).astype('int')) for i in fnames])
     fpt=(mti>=(StartT-1))*(mti<(EndT+1)); fnames=fnames[fpt]; mti=mti[fpt]
     sind=argsort(mti); mti=mti[sind]; fnames=fnames[sind]
@@ -424,11 +414,7 @@ if 1 in [p.flag[fname] for fname in ['elev2D.th.nc','TEM_3D.th.nc','SAL_3D.th.nc
     gd=loadz(p.grd).hgrid; vd=loadz(p.grd).vgrid; gd.x,gd.y=gd.lon,gd.lat; nvrt=vd.nvrt
     
     #get bnd node xyz
-    #bind=gd.iobn[0]; nobn=gd.nobn[0]
-    nobn=sum(gd.nobn); bind=[]
-    for i in gd.iobn:
-        bind.extend(i)
-    bind=array(bind)
+    bind=gd.iobn[0]; nobn=gd.nobn[0]
     lxi0=gd.x[bind]%360; lyi0=gd.y[bind]; bxy=c_[lxi0,lyi0] #for 2D
     lxi=tile(lxi0,[nvrt,1]).T.ravel(); lyi=tile(lyi0,[nvrt,1]).T.ravel() #for 3D
     if vd.ivcor==2:
@@ -605,7 +591,7 @@ if p.flag['TEM_nu.nc']==1 or p.flag['SAL_nu.nc']==1:
     mvars=['temp','salt']
     
     #find all hycom files
-    fnames=array([i for i in os.listdir(dir_hycom) if i.endswith('.nc')])
+    fnames=array([i for i in os.listdir(dir_hycom) if i.endswith('.nc') and i.startswith('hycom_')])
     mti=array([datenum(*array(i.replace('.','_').split('_')[1:5]).astype('int')) for i in fnames])
     fpt=(mti>=(StartT-1))*(mti<(EndT+1)); fnames=fnames[fpt]; mti=mti[fpt]
     sind=argsort(mti); mti=mti[sind]; fnames=fnames[sind]
@@ -893,8 +879,8 @@ if p.flag['sflux']==1:
    print('writing sflux')
    #parameters
    tdir='./sflux'      #target dir
-   itag=1              #itag=[1 or 2],for sflux_air_itag.0691.nc 
-   
+   itag=1              #itag=[1 or 2],for sflux_air_itag.0691.nc
+
    #make links
    bdir=os.path.abspath(os.path.curdir); tdir=os.path.abspath(tdir)
    if fexist(tdir): os.system('rm -rf {}'.format(tdir))
@@ -905,7 +891,7 @@ if p.flag['sflux']==1:
        year=num2date(ti).year; month=num2date(ti).month; day=num2date(ti).day
        for m,svar in enumerate(svars):
            fname='{}/{}/{}_{:02d}/narr_{}.{:04d}_{:02d}_{:02d}.nc'.format(p.sflux_dir,year,year,month,svar,year,month,day)
-           if not fexist(fname): sys.exit(f'check the sflux_dir, {fname} does not exist') 
+           if not fexist(fname): sys.exit(f'check the sflux_dir, {fname} does not exist')
            os.system('ln -sf {} sflux_{}_{}.{:04d}.nc'.format(fname,svar,itag,irec+1))
            if m==1 and month==1 and day==1: print('    sflux: {:04d}-{:02d}-{:02d}'.format(year,month,day))
    #write sflux_inputs.txt
