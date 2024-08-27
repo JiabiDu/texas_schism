@@ -5,11 +5,11 @@ import datetime,re
 import os
 import sys
 import subprocess
-
+from glob import glob 
 #-----input------------------------------------------------------------
 runs=['RUN01d','RUN02p','RUN02q']
-
-if len(sys.argv)!=1: runs=sys.argv[1:]
+if len(sys.argv)>2: runs=sys.argv[1:]
+if len(sys.argv)==2: runs=glob(sys.argv[1])
 #%% some functions
 def read_schism_param(fname,fmt=0):
     '''
@@ -108,8 +108,8 @@ for run in runs:
 
     #print results
     if nday0*86400<2*dt: 
-       print('{}: RTR={:.1f}; {:.2f} days finished in {:.1f} hrs ({:.0f} min); ({:.1f}, {:.1f}, {:.1f}) hrs needed for ({:.1f}, {:.1f}, {:.0f}) days'.format \
-             (run,RTR,nday1,ds/3600,ds/60, time_left,time_all,time_365,(nday-nday1),nday, 365))
+       print('{}: RTR={:.1f}; {:.1f} days finished in {:.1f} hrs; ({:.1f}, {:.1f}) hrs needed for ({:.1f}, {:.0f}) days'.format \
+             (run,RTR,nday1,ds/3600, time_all,time_365,nday, 365))
     else:
        print('{}: RTR={:.1f}; {:.2f} ({:.1f}) days finished in {:.1f} hrs ({:.0f} min); ({:.1f}, {:.1f}, {:.1f}) hrs needed for ({:.1f}, {:.1f}, {:.0f}) days'.format \
              (run,RTR,(nday1-nday0),nday1,ds/3600,ds/60, time_left,time_all,time_365,(nday-nday1),nday, 365))

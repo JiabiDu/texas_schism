@@ -26,12 +26,12 @@ if os.path.exists(run+'/outputs/mirror.out'):
 
 # copy run
 os.system("rm -r {}; mkdir {}".format(run,run))
-fnames=[i for i in os.listdir(base) if i.endswith(('in','nc','gr3','prop','ll','th','npz','sflux')) or i.startswith(('pschism',))]
+fnames=[i for i in os.listdir(base) if i.endswith(('ic','in','nc','gr3','prop','ll','th','npz','sflux','nml','dat')) or i.startswith(('pschism',))]
 for fname in fnames: #only use one level of sybmolic link
     cpfile(base+'/'+fname,run+'/'+fname)
 
 # copy param.nml, run.*
-os.system(f'cp {base}/param.nml {run}')
+os.system(f'rm {run}/param.nml; cp {base}/param.nml {run}')
 os.system(f'cp {base}/run* {run}')
 os.system(f"cd {run}; rm -r outputs slurm-* *centers.bp screen.out")
 
@@ -40,12 +40,13 @@ os.system(f"cd {run}; mkdir -p  {opath}; ln -sf {opath} .")
 
 # copy new input files; link depth = 1
 if os.path.exists(f'Inputs/{run}'):
-   fnames=[i for i in os.listdir(f'Inputs/{run}') if i.endswith(('in','nc','gr3','prop','ll','th','npz','sflux'))]
+   fnames=[i for i in os.listdir(f'Inputs/{run}') if i.endswith(('ic','in','nc','gr3','prop','ll','th','npz','sflux','nml','dat'))]
    for fname in fnames:
+       print('copy file',fname, f'from Inputs/{run}/')
        cpfile(f'Inputs/{run}/'+fname,run+'/'+fname)
 
 # copy flux.out, needed for hotstart
-if os.path.exists(f'../{base}/outputs/flux.out'):
+if os.path.exists(f'{base}/outputs/flux.out'):
     os.system(f"cd {run}; cp ../{base}/outputs/flux.out outputs/") #needed for hotstart
 
 print(f'Succesfully copy {base} to {run} for project {prj}')

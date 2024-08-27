@@ -9,24 +9,24 @@ from pylib import *
 close("all")
 
 p=zdata(); p.flag={}  #parameters
-p.base   = '../run19a'   #for file with flag==2, a symbolic link will be generated
+p.base   = '../r244b'   #for file with flag==2, a symbolic link will be generated
 p.StartT =  datenum(2018,1,1)
 p.EndT   =  datenum(2019,12,31)                 
-p.grid_dir   = '../../Grids/V2p' #grid, including hgrid.ll, hgrid.gr3,grid.npz,vgrid.in, rivers.bp
-p.hot_base   = '../setup_files/2018_sz_40layer.npz' #from previous run, only for grids with depth less than hot_base_h
+p.grid_dir   = '../../Grids/V2.7.0.b' #grid, including hgrid.ll, hgrid.gr3,grid.npz,vgrid.in, rivers.bp
+p.hot_base   = '/scratch/user/jdu/GoM/Inputs/setup_files/2018_sz_40layer.npz' #from previous run, only for grids with depth less than hot_base_h
 p.hot_base_h = 20                                 #depth for which the hot_base will be used. deeper water will still base on hycom
 p.tide_dir   = r'/scratch/user/jdu/FES2014'       #FES tide and script to ajust nodal
-p.hycom_dir  = '../../Observations/hycom/Data/'   #hycom data
-p.flow_dir   = '../../Observations/usgs_flow/npz/'#flow data, used in vsource.th
-p.temp_dir   = '../../Observations/usgs_temp/npz/'#temperature data, used in msource.th
+p.hycom_dir  = '/scratch/user/jdu/GoM/Observations/hycom/Data/'   #hycom data
+p.flow_dir   = '/scratch/user/jdu/GoM/Observations/usgs_flow/npz/'#flow data, used in vsource.th
+p.temp_dir   = '/scratch/user/jdu/GoM/Observations/usgs_temp/npz/'#temperature data, used in msource.th
 p.sflux_dir  = r'/scratch/user/jdu/NARR'       #have to be relative path
 p.WW3 = '/scratch/user/jdu/WWIII-Ifremer/Global/ECMWF/Final/'
-p.bdir  = '../setup_files/'                   #including files other than the forcing files generated here
+p.bdir  = '/scratch/user/jdu/GoM/Inputs/setup_files/'                   #including files other than the forcing files generated here
 
 p.flag['WWM']            =       0   #wave module
 p.flag['SED']            =       0   #sediment module
 
-p.flag['param.nml']      =       0   #hydro
+p.flag['param.nml']      =       1   #hydro
 p.flag['*.gr3']          =       1   #hydro+SED 
 p.flag['tvd.prop']       =       1   #hydro
 p.flag['bctides.in']     =       1   #hydro+SED
@@ -74,6 +74,15 @@ if p.flag['*.gr3']==1:
         print(f'writing {var} with value of {vars[var]}')
         gd.write_hgrid(f'{var}',value=vars[var])
     
+    #for spatially varying shapiro
+    print('writing spatially varying shapiro.gr3')
+    vmin=0.05; hmin=20
+    vmax=0.5; hmax=100
+    value=vmax-(gd.dp-hmin)*(vmax-vmin)/(hmax-hmin)
+    value[value<vmin]=vmin
+    value[value>vmax]=vmax   
+    gd.write_hgrid('shapiro.gr3',value=value)
+ 
     print('writing SAL_nudge.gr3')
     miny=gd.y.min()
     maxx=gd.x.max()
@@ -230,7 +239,7 @@ if p.flag['hotstart.nc']:
     mvars=['temp','salt']
     
     #find hycom file
-    fnames=array([i for i in os.listdir(dir_hycom) if i.endswith('.nc') and i.startswith('hycom_')])
+    fnames=array([i for i in os.listdir(dir_hycom) if i.endswith('.nc') and i.startswith('hycom')])
     mti=array([datenum(*array(i.replace('.','_').split('_')[1:5]).astype('int')) for i in fnames])
     if abs(mti-StartT).min()>1: system.exit('the availabe hycom file is too far away from the StartT')
     fpt=nonzero(abs(mti-StartT)==min(abs(mti-StartT)))[0][0]; fname=fnames[fpt]
@@ -723,7 +732,7 @@ if 1 in [p.flag[fname] for fname in ['source_sink.in','vsource.th','msource.th',
     begin_time=p.StartT; end_time=p.EndT #for model forcing
     flow_dir=p.flow_dir #'../../Observations/usgs_flow/npz/'
     temp_dir=p.temp_dir #'../../Observations/usgs_temp/npz/'
-             #river name      #usgs     #lon&lat to model  #flow ratio #temp station                
+             #river name      #usgs     #lon&lat to model  #flow ratio #temp station !x,y here is useless            
     rivers={'Alabama River':['02428400',-87.952193,31.114812, 1, 'NOAA8737048'],
             'Tombigbee River':['02469761',-87.952193,31.114812, 1, 'NOAA8737048'], #Merged into Alabama River
             'Pearl River':['02489500',-89.637938,30.286756, 1, 'NOAA8747437'],
@@ -737,7 +746,7 @@ if 1 in [p.flag[fname] for fname in ['source_sink.in','vsource.th','msource.th',
             'Lost River':['08067252',-94.756050, 29.877047,0.1, '08067252'], #no station, 10% of division is presumed (no ref, should find one)
             'Cedar Bayou':['08067500',-94.919973, 29.778797,1, '08067252'],
             'East Folk Goose Creek':['08067525',-94.980494, 29.751355,1, '08067252'],
-            'San Jancinto River':['08072000',-95.130881, 29.918268,0.8, 'NOAA8770777'], #lake houston, water level will be used
+            'San Jancinto River':['08072000',-95.130881, 29.918268,1, 'NOAA8770777'], #lake houston, water level will be used
             'Greens Bayou':['08076000',-95.224971, 29.813957,1, 'NOAA8770777'], 
             'Buffalo Bayou':['08073600',-95.354827, 29.762263,1,'NOAA8770777'],
             'Brays Bayou':['08075000',-95.332714, 29.714415,1,'NOAA8770777'],
@@ -752,14 +761,36 @@ if 1 in [p.flag[fname] for fname in ['source_sink.in','vsource.th','msource.th',
             'Tres Palacios River':['08162600',-96.146563, 28.811765,1, 'NOAA8773146'],
             'Carancahua Creek':['08164000',-96.421990, 28.772334, 0.12, 'NOAA8773146'], #ratio based on Crancahua Creek watershed compared to Lavaca River 
             'Lavaca River':['08164000',-96.576292, 28.869547,1, 'NOAA8773259'],
-            'Mission river':['08189500',-97.195667, 28.186161,1, 'NOAA8774770'],
+            'Mission River':['08189500',-97.195667, 28.186161,1, 'NOAA8774770'],
             'Aransas River':['08189700',-97.284350, 28.094783,1, 'NOAA8774770'],
             'Guadalupe River':['08188810',-96.841728, 28.468151,1, 'NOAA8773037'],
             'Saint Antonio River':['08188060',-96.841728, 28.468151,1, 'NOAA8773037'], #merged into Guadalupe
             'Nueces River':['08211200',-97.604969, 27.869262,1,'08211200'], #into CC Bay
             'Petronila Creek':['08212820',-97.525740, 27.523016,1,'NOAA8776604'], #into Baffin Bay
             'San Fernando Creek':['08211900',-97.773413, 27.400734,1,'NOAA8776604'], #into Baffin Bay
-            'Los Olmos Creek':['08212400',-97.795990, 27.273561,1,'NOAA8776604']} #into Baffin Bay
+            'Los Olmos Creek':['08212400',-97.795990, 27.273561,1,'NOAA8776604'], #into Baffin Bay
+            'RioGrand River':['08211900',-97.28999900, 25.93647500,1,'NOAA8776604'], #use San Fernando
+            'Caloosahatchee River':['02292900',0,0,1,'02292900'], #tidal station
+            'Peace River':['02296750',0,0,1,'02299230'],
+            'Myakka River':['02298880',0,0,1,'02299230'],
+            'Manatee River':['02299950',0,0,1.8,'02301718'], #including Gamble Creek (62cfs) and Raden River (39cfs),ltm for Manatee is 125cfs
+            'Little Manatee River':['02300500',0,0,1,'02301718'], #temp using manatee
+            'Alafia River':['02301500',0,0,1,'02301718'],
+            'Hillsborough River':['02304500',0,0,1,'02306028'],
+            'Suwannee River':['02323500',-83.03475000,29.38943600,1,'02323592'],
+            'Steinhatchee River':['02324000',0,0,1,'02323592'],
+            'Ochlockonee River':['02330150',0,0,1,'02327031'],
+            'Sopchoppy River':['02330150',0,0,0.1,'02327031'], #no measurement, using Ochlockonee, *0.1
+            'Apalachicola River':['02359170',0,0,1,'02359170'], #big river
+            'Choctawhatchee River':['02366500',0,0,1,'02327031'],#big river
+            'Turkey Creek':['02250030',0,0,1,'02327031'],
+            'Blackwater River':['02370000',0,0,1,'02327031'],
+            'Escambia River':['02370500',0,0,1,'02327031'],    #into Pensocola Bay
+            'Perdido River':['02376500',0,0,1,'02327031'],
+            'Perdico River':['02359170',0,0,1,'02359170'],
+            'Bon Secour River':['02378500',0,0,0.5,'NOAA8737048'], #no usgs flow, use 50% of Fish River
+            'Fish River':['02378500',0,0,1,'NOAA8737048'],
+    }
     #only rivers in bp.station will be used
     close('all'); bp=read_schism_bpfile(p.grid_dir+'/rivers.bp')  #if some figure is openned, read_bp will lead to error
     if len(bp.x) != len(bp.station): sys.exit('rivers.bp is not well prepared')
@@ -982,3 +1013,5 @@ if p.flag['run grace']==1:
     cmd=f'cd ../../{run}; mkdir outputs; rm zfig*.png'
     print(cmd); os.system(cmd)
 
+
+print('Completed!')
